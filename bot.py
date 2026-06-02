@@ -82,7 +82,7 @@ def get_sender_name(msg) -> str:
 
 def claude_text(prompt: str, max_tokens: int = 1000) -> str:
     resp = claude.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -90,7 +90,7 @@ def claude_text(prompt: str, max_tokens: int = 1000) -> str:
 
 def claude_vision(prompt: str, img_b64: str, max_tokens: int = 2000) -> str:
     resp = claude.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": [
             {"type": "image", "source": {"type": "base64",
