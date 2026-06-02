@@ -52,7 +52,15 @@ claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 # ─────────────────────────────────────────────────────────────────────────────
 def write_to_sheet(url: str, sheet_name: str, rows: list) -> dict:
     try:
-        r = requests.post(url, json={"sheet": sheet_name, "rows": rows}, timeout=20)
+        payload = json.dumps({"sheet": sheet_name, "rows": rows})
+        r = requests.post(url, data=payload,
+                          headers={"Content-Type": "application/json"},
+                          timeout=20, allow_redirects=False)
+        if r.status_code in (301, 302):
+            redirect_url = r.headers.get("Location")
+            r = requests.post(redirect_url, data=payload,
+                              headers={"Content-Type": "application/json"},
+                              timeout=20)
         return r.json()
     except Exception as e:
         logger.error(f"write_to_sheet error: {e}")
