@@ -53,18 +53,11 @@ claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 def write_to_sheet(url: str, sheet_name: str, rows: list) -> dict:
     try:
         payload = json.dumps({"sheet": sheet_name, "rows": rows})
-        # Apps Script возвращает 302 редирект — следуем за ним
-        # requests конвертирует POST→GET при редиректе, это нормально:
-        # скрипт выполняется при первом POST, редирект — только для ответа
-        r = requests.post(url, data=payload,
-                          headers={"Content-Type": "application/json"},
-                          timeout=30)
-        logger.info(f"write_to_sheet: status={r.status_code} len={len(r.text)}")
+        r = requests.get(url, params={"action": "write", "data": payload}, timeout=30)
+        logger.info(f"write_to_sheet: status={r.status_code} body={r.text[:200]}")
         try:
             return r.json()
         except ValueError:
-            # Apps Script иногда возвращает HTML вместо JSON — это ОК если статус 200
-            logger.warning(f"write_to_sheet: не JSON ответ, status={r.status_code}")
             return {"status": "ok" if r.status_code == 200 else "error"}
     except Exception as e:
         logger.error(f"write_to_sheet error: {e}")
