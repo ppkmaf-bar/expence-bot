@@ -146,18 +146,20 @@ def to_number(value):
 # ─────────────────────────────────────────────────────────────────────────────
 def parse_expense(text: str, sender_name: str) -> list:
     today = datetime.now().strftime("%d.%m.%Y")
-    prompt = f"""Разбери сообщение и извлеки личные расходы пары. Сегодня: {today}.
+    prompt = f"""Разбери сообщение и извлеки финансовые операции пары. Сегодня: {today}.
 Отправитель сообщения: {sender_name}
 
 Верни ТОЛЬКО JSON-массив без markdown:
-[{{"date":"ДД.ММ.ГГГГ","who":"Имя","amount":число,"type":"категория","desc":"описание"}}]
+[{{"date":"ДД.ММ.ГГГГ","who":"Имя","operation":"расход или доход","amount":число,"type":"категория","desc":"описание"}}]
 
 Правила:
+- operation: "расход" если потратили/заплатили/купили, "доход" если получили/пришло/зарплата/перевод/возврат
 - Все суммы в рублях, amount — только число
 - Если написано "я"/"мне"/"оплатил" без имени — это отправитель: {sender_name}
 - Если явно указано другое имя — используй его
-- Категории: еда, транспорт, жильё, здоровье, развлечения, бар, другое
-- Если расходов в сообщении нет — верни []
+- Категории расходов: еда, транспорт, жильё, здоровье, развлечения, бар, другое
+- Категории доходов: зарплата, фриланс, возврат, перевод, другое
+- Если операций нет — верни []
 
 Сообщение: "{text}" """
     data = parse_json(claude_text(prompt))
@@ -407,13 +409,13 @@ async def handle_couple(msg, text: str, sender_name: str, context):
         await msg.reply_text(answer_expense_question(text))
         return
 
-    # всё остальное пытаемся разобрать как расход
+ # всё остальное пытаемся разобрать как расход
     expenses = parse_expense(text, sender_name)
     if expenses:
-        rows = [[e.get("date", ""), e.get("who") or sender_name, to_number(e.get("amount", "")),
-                 e.get("type", "другое"), e.get("desc", ""), added_ts] for e in expenses]
+        rows = [[e.get("date", ""), e.get("who") or sender_name, e.get("operation", "расход"),
+                         to_number(e.get("amount", "")), e.get("type", "другое"), e.get("desc", ""), added_ts] for e in expenses]
         write_to_sheet(COUPLE_SCRIPT_URL, "Расходы", rows)
-        lines = [f"• {e.get('who') or sender_name}: {e.get('amount','')}₽ — {e.get('desc','')} ({e.get('type','')})" for e in expenses]
+        lines = [f"• {e.get('operation','расход').upper()} | {e.get('who') or sender_name}: {e.get('amount','')}₽ — {e.get('desc','')} ({e.get('type','')})" for e in expenses]
         await msg.reply_text("✅ Записал:\n" + "\n".join(lines))
     else:
         await msg.reply_text(
