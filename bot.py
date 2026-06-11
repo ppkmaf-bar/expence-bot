@@ -488,21 +488,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         text = strip_mention(text)
 
-    # ── Reply на старое сообщение: берём данные из оригинала ──────────────
-    replied = msg.reply_to_message
-    if replied and replied.from_user and not replied.from_user.is_bot:
-        original_text = (replied.text or replied.caption or "").strip()
-        original_photo = replied.photo if replied.photo else None
+# ── Reply на старое сообщение: берём данные из оригинала ──────────────
+        replied = msg.reply_to_message
+        if replied and replied.from_user and not replied.from_user.is_bot:
+            original_text = (replied.text or replied.caption or "").strip()
+            original_photo = replied.photo if replied.photo else None
 
-     clean = text.lower().strip()
-        trigger_words = ["забери", "запиши", "занеси", "разбери", "обработай"]
-        is_just_trigger = clean == "" or any(w in clean for w in trigger_words)
+            clean = text.lower().strip()
+            trigger_words = ["забери", "запиши", "занеси", "разбери", "обработай"]
+            is_just_trigger = clean == "" or any(w in clean for w in trigger_words)
 
-        if is_just_trigger and (original_text or original_photo):
-            logger.info(f"Reply mode: берём данные из оригинального сообщения")
-            text = original_text
-            if original_photo:
-                msg = replied
+            if is_just_trigger and (original_text or original_photo):
+                logger.info(f"Reply mode: берём данные из оригинального сообщения")
+                text = original_text
+                if original_photo:
+                    msg = replied
 
     try:
         if route == "bar":
