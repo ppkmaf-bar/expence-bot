@@ -292,9 +292,9 @@ async def handle_bar(msg, text: str, sender_name: str, context):
     has_photo = bool(msg.photo)
     intent = classify_intent(text) if text else "unknown"
 
-    # ── ТЕКСТ + ФОТО: скорее всего смена с чеком ──────────────────────────
+    # ── ТЕКСТ + ФОТО: смена — обрабатываем только текст, фото игнорируем ─
     if has_photo and text and intent == "shift":
-        await msg.reply_text("📊 Разбираю отчёт смены + чек...")
+        await msg.reply_text("📊 Разбираю отчёт смены...")
         data = parse_shift_report(text, sender_name)
         if data and data.get("total"):
             closed_by = data.get("closed_by") or sender_name
@@ -307,9 +307,11 @@ async def handle_bar(msg, text: str, sender_name: str, context):
                 f"Закрыл: {closed_by}\n"
                 f"Выручка: {data.get('total','')}₽\n"
                 f"• Бар: {data.get('bar','')}₽ | Услуги: {data.get('services','')}₽\n"
-                f"• Эквайринг: {data.get('acquiring','')}₽ | Терминал: {data.get('terminal','')}₽ | Нал: {data.get('cash','')}₽")
+                f"• Эквайринг: {data.get('acquiring','')}₽ | Терминал: {data.get('terminal','')}₽ | Нал: {data.get('cash','')}₽\n"
+                f"\n📎 Чек с позициями пришли отдельным фото — разберу и занесу в продажи.")
         else:
             await msg.reply_text("⚠️ Не удалось разобрать текст отчёта смены.")
+        return
 
         file = await context.bot.get_file(msg.photo[-1].file_id)
         img_bytes = bytes(await file.download_as_bytearray())
@@ -498,9 +500,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             trigger_words = ["забери", "запиши", "занеси", "разбери", "обработай"]
             is_just_trigger = clean == "" or any(w in clean for w in trigger_words)
 
-            if is_just_trigger and (original_text or original_photo):
+        if is_just_trigger and (original_text or original_photo):
                 logger.info(f"Reply mode: берём данные из оригинального сообщения")
                 text = original_text
+                sender_name = get_sender_name(replied)
                 if original_photo:
                     msg = replied
 
