@@ -517,7 +517,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             original_photo = replied.photo if replied.photo else None
 
             clean = text.lower().strip()
-            trigger_words = ["забери", "запиши", "занеси", "разбери", "обработай"]
+            trigger_words = ["забери", "запиши", "занеси", "разбери", "обработай", "чек", "накладная", "смена"]
             is_just_trigger = clean == "" or any(w in clean for w in trigger_words)
 
         if is_just_trigger and (original_text or original_photo):
