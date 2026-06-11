@@ -221,7 +221,12 @@ def parse_shift_report(text: str, sender_name: str) -> dict:
 def parse_sales_receipt(img_b64: str, sender_name: str) -> list:
     prompt = f"""Посмотри на фото чека продаж из бара. Извлеки все позиции. Прислал: {sender_name}.
 Верни ТОЛЬКО JSON-массив без markdown:
-[{{"product":"название","qty":число,"price":число,"total":число}}]
+[{{"product":"название","qty":число,"price":число,"total":число,"category":"категория"}}]
+
+Категории:
+- "чаши" — если позиция содержит слова: чаша, чаши, продление чаш, продление чаши, кальян
+- "бар" — все остальные позиции (напитки, еда, закуски и т.д.)
+
 Все числа без знаков валют. Если не чек или ничего не видно — верни []."""
     data = parse_json(claude_vision(prompt, img_b64, 1500))
     return data if isinstance(data, list) else []
@@ -320,7 +325,7 @@ async def handle_bar(msg, text: str, sender_name: str, context):
         if items:
             rows = [[data.get("date","") if data else added_ts, sender_name,
                      i.get("product",""), to_number(i.get("qty","")), to_number(i.get("price","")),
-                     to_number(i.get("total","")), added_ts] for i in items]
+                     to_number(i.get("total","")), i.get("category","бар"), added_ts] for i in items]
             write_to_sheet(BAR_SCRIPT_URL, "Продажи", rows)
             lines = [f"• {i.get('product','')} × {i.get('qty','')} = {i.get('total','')}₽" for i in items]
             await msg.reply_text(f"🧾 Чек продаж записан:\n" + "\n".join(lines))
@@ -374,7 +379,7 @@ async def handle_bar(msg, text: str, sender_name: str, context):
                 await msg.reply_text("Не удалось распознать чек.")
                 return
             rows = [[added_ts, sender_name, i.get("product",""), to_number(i.get("qty","")),
-                     to_number(i.get("price","")), to_number(i.get("total","")), added_ts] for i in items]
+                     to_number(i.get("price","")), to_number(i.get("total","")), i.get("category","бар"), added_ts] for i in items]
             write_to_sheet(BAR_SCRIPT_URL, "Продажи", rows)
             lines = [f"• {i.get('product','')} × {i.get('qty','')} = {i.get('total','')}₽" for i in items]
             await msg.reply_text(f"✅ Чек продаж от {sender_name}:\n" + "\n".join(lines))
