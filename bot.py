@@ -154,11 +154,11 @@ def answer_finance_question(question: str) -> str:
 
 def classify_photo(img_b64: str, caption: str = "") -> str:
     prompt = f"""Посмотри на фото и определи что это. Ответь ОДНИМ словом:
-- invoice — если это накладная от поставщика (список товаров с ценами, поставка)
-- receipt — если это кассовый чек или чек продаж (список проданных позиций)
+- invoice — если это НАКЛАДНАЯ от поставщика (документ поставки, обычно на листе А4, с реквизитами компании-поставщика, печатями)
+- receipt — если это КАССОВЫЙ ЧЕК продаж (узкая бумажная лента из кассы или терминала, список проданных позиций)
 - unknown — если непонятно
 
-Подпись к фото: "{caption}"
+Подпись: "{caption}"
 Ответь только одним словом: invoice, receipt или unknown."""
     result = claude_vision(prompt, img_b64, max_tokens=20).lower().strip()
     if "invoice" in result: return "invoice"
@@ -261,6 +261,8 @@ def classify_intent(text: str) -> str:
     lower = text.lower()
     if any(w in lower for w in ["накладная", "накладн", "поставк", "поставщик", "привезли", "приход товар"]):
         return "invoice"
+    if any(w in lower for w in ["чек", "продажи", "позиции"]):
+        return "receipt"
     if any(w in lower for w in ["смена", "выручка", "отчёт", "отчет", "результат смен", "закрыл смену"]):
         return "shift"
     if any(w in lower for w in ["сколько", "баланс", "итого", "кто должен", "статистик",
@@ -338,7 +340,20 @@ async def handle_bar(msg, text: str, sender_name: str, context):
         file = await context.bot.get_file(msg.photo[-1].file_id)
         img_bytes = bytes(await file.download_as_bytearray())
         img_b64 = image_to_base64(img_bytes)
-
+        
+        if intent == "receipt":
+            await msg.reply_text("🧾 Разбираю чек продаж...")
+            items = parse_sales_receipt(img_b64, sender_name)
+            if not items:
+                await msg.reply_text("Не удалось распознать чек.")
+                return
+            rows = [[added_ts, sender_name, i.get("product",""), to_number(i.get("qty","")),
+                     to_number(i.get("price","")), to_number(i.get("total","")), i.get("category","бар"), added_ts] for i in items]
+            write_to_sheet(BAR_SCRIPT_URL, "Продажи", rows)
+            lines = [f"• {i.get('product','')} × {i.get('qty','')} = {i.get('total','')}₽" for i in items]
+            await msg.reply_text(f"✅ Чек продаж от {sender_name}:\n" + "\n".join(lines))
+            return
+            
         if intent == "invoice":
             await msg.reply_text("📋 Разбираю накладную...")
             items = parse_invoice_image(img_b64, text, sender_name)
