@@ -494,8 +494,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         original_text = (replied.text or replied.caption or "").strip()
         original_photo = replied.photo if replied.photo else None
 
-        clean = text.lower().strip()
-        is_just_trigger = clean in ("", "забери", "запиши", "занеси", "разбери", "обработай")
+     clean = text.lower().strip()
+        trigger_words = ["забери", "запиши", "занеси", "разбери", "обработай"]
+        is_just_trigger = clean == "" or any(w in clean for w in trigger_words)
 
         if is_just_trigger and (original_text or original_photo):
             logger.info(f"Reply mode: берём данные из оригинального сообщения")
