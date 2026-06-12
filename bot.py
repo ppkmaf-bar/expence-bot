@@ -364,11 +364,13 @@ async def handle_bar(msg, text: str, sender_name: str, context):
         
         if intent == "receipt":
             await msg.reply_text("🧾 Разбираю чек продаж...")
-            items = parse_sales_receipt(img_b64, sender_name)
+            result = parse_sales_receipt(img_b64, sender_name)
+            receipt_date = result.get("date") or datetime.now().strftime("%d.%m.%Y")
+            items = result.get("items", [])
             if not items:
                 await msg.reply_text("Не удалось распознать чек.")
                 return
-            rows = [[added_ts, sender_name, i.get("product",""), to_number(i.get("qty","")),
+            rows = [[receipt_date, sender_name, i.get("product",""),
                      to_number(i.get("price","")), to_number(i.get("total","")), i.get("category","бар"), added_ts] for i in items]
             write_to_sheet(BAR_SCRIPT_URL, "Продажи", rows)
             lines = [f"• {i.get('product','')} × {i.get('qty','')} = {i.get('total','')}₽" for i in items]
