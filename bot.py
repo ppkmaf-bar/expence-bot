@@ -230,18 +230,25 @@ def parse_shift_report(text: str, sender_name: str) -> dict:
 # БАР — ПРОДАЖИ (чеки)
 # ═════════════════════════════════════════════════════════════════════════════
 
-def parse_sales_receipt(img_b64: str, sender_name: str) -> list:
-    prompt = f"""Посмотри на фото чека продаж из бара. Извлеки все позиции. Прислал: {sender_name}.
-Верни ТОЛЬКО JSON-массив без markdown:
-[{{"product":"название","qty":число,"price":число,"total":число,"category":"категория"}}]
+def parse_sales_receipt(img_b64: str, sender_name: str) -> dict:
+    prompt = f"""Посмотри на фото чека продаж из бара. Прислал: {sender_name}.
+
+1. Найди дату кассового дня на чеке (обычно вверху: "кассовый день", "дата" и т.п.)
+2. Извлеки все позиции
+
+Верни ТОЛЬКО JSON без markdown:
+{{"date":"ДД.ММ.ГГГГ","items":[{{"product":"название","qty":число,"price":число,"total":число,"category":"категория"}}]}}
 
 Категории:
-- "чаши" — если позиция содержит слова: чаша, чаши, продление чаш, продление чаши, кальян
-- "бар" — все остальные позиции (напитки, еда, закуски и т.д.)
+- "чаши" — если позиция содержит: чаша, чаши, продление чаш, продление чаши, кальян
+- "бар" — все остальные (напитки, еда, закуски и т.д.)
 
-Все числа без знаков валют. Если не чек или ничего не видно — верни []."""
-    data = parse_json(claude_vision(prompt, img_b64, 1500))
-    return data if isinstance(data, list) else []
+Все числа без знаков валют. Если дату не видно — используй сегодняшнюю. Если не чек — верни {{"date":"","items":[]}}."""
+    raw = claude_vision(prompt, img_b64, 2000)
+    data = parse_json(raw)
+    if not isinstance(data, dict):
+        return {"date": "", "items": []}
+    return data
 
 def answer_admin_question(question: str) -> str:
     shifts = read_from_sheet(BAR_SCRIPT_URL, "Смены")
@@ -335,9 +342,11 @@ async def handle_bar(msg, text: str, sender_name: str, context):
         file = await context.bot.get_file(msg.photo[-1].file_id)
         img_bytes = bytes(await file.download_as_bytearray())
         img_b64 = image_to_base64(img_bytes)
-        items = parse_sales_receipt(img_b64, sender_name)
-        if items:
-            rows = [[data.get("date","") if data else added_ts, sender_name,
+        result = parse_sales_receipt(img_b64, sender_name)
+                receipt_date = result.get("date") or datetime.now().strftime("%d.%m.%Y")
+                items = result.get("items", [])
+                if items:
+            rows = [[receipt_date, sender_name, i.get("product",""),
                      i.get("product",""), to_number(i.get("qty","")), to_number(i.get("price","")),
                      to_number(i.get("total","")), i.get("category","бар"), added_ts] for i in items]
             write_to_sheet(BAR_SCRIPT_URL, "Продажи", rows)
