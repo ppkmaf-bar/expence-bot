@@ -43,7 +43,19 @@ claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 def write_to_sheet(url: str, sheet_name: str, rows: list) -> dict:
     try:
         payload = json.dumps({"sheet": sheet_name, "rows": rows})
-        r = requests.get(url, params={"action": "write", "data": payload}, timeout=30)
+        # Если данных мало — GET, если много — разбиваем на части
+        if len(payload) < 1500:
+            r = requests.get(url, params={"action": "write", "data": payload}, timeout=30)
+        else:
+            # Разбиваем на порции по 5 строк
+            for i in range(0, len(rows), 5):
+                chunk = rows[i:i+5]
+                chunk_payload = json.dumps({"sheet": sheet_name, "rows": chunk})
+                r = requests.get(url, params={"action": "write", "data": chunk_payload}, timeout=30)
+                logger.info(f"write_to_sheet({sheet_name}) chunk {i//5+1}: status={r.status_code}")
+            r_text = r.text if r else ""
+            logger.info(f"write_to_sheet({sheet_name}): done, total rows={len(rows)}")
+            return {"status": "ok", "written": len(rows)}
         logger.info(f"write_to_sheet({sheet_name}): status={r.status_code} body={r.text[:200]}")
         try:
             return r.json()
