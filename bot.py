@@ -28,7 +28,7 @@ def _safe_int(name: str) -> int:
     try:
         return int(raw)
     except ValueError:
-        logger.warning(f"{name} не число: {raw!r}, ставлю 0")
+        logger.warning(f"{name} not a number: {raw!r}, using 0")
         return 0
 
 ADMIN_CHAT_ID = _safe_int("ADMIN_CHAT_ID")
@@ -38,22 +38,19 @@ logger.info(f"ADMIN_CHAT_ID={ADMIN_CHAT_ID}  COUPLE_CHAT_ID={COUPLE_CHAT_ID}")
 claude = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Google Sheets через Apps Script
+# Google Sheets via Apps Script
 # ─────────────────────────────────────────────────────────────────────────────
 def write_to_sheet(url: str, sheet_name: str, rows: list) -> dict:
     try:
         payload = json.dumps({"sheet": sheet_name, "rows": rows})
-        # Если данных мало — GET, если много — разбиваем на части
         if len(payload) < 1500:
             r = requests.get(url, params={"action": "write", "data": payload}, timeout=30)
         else:
-            # Разбиваем на порции по 5 строк
             for i in range(0, len(rows), 5):
                 chunk = rows[i:i+5]
                 chunk_payload = json.dumps({"sheet": sheet_name, "rows": chunk})
                 r = requests.get(url, params={"action": "write", "data": chunk_payload}, timeout=30)
                 logger.info(f"write_to_sheet({sheet_name}) chunk {i//5+1}: status={r.status_code}")
-            r_text = r.text if r else ""
             logger.info(f"write_to_sheet({sheet_name}): done, total rows={len(rows)}")
             return {"status": "ok", "written": len(rows)}
         logger.info(f"write_to_sheet({sheet_name}): status={r.status_code} body={r.text[:200]}")
@@ -74,15 +71,17 @@ def read_from_sheet(url: str, sheet_name: str) -> list:
         return []
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Вспомогательные
+# Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 def image_to_base64(fb: bytes) -> str:
     return base64.standard_b64encode(fb).decode("utf-8")
 
 def get_sender_name(msg) -> str:
     u = msg.from_user
-    if not u: return "Неизвестно"
-    if u.first_name and u.last_name: return f"{u.first_name} {u.last_name}"
+    if not u:
+        return "Неизвестно"
+    if u.first_name and u.last_name:
+        return f"{u.first_name} {u.last_name}"
     return u.first_name or u.username or "Неизвестно"
 
 def claude_text(prompt: str, max_tokens: int = 1000) -> str:
@@ -106,22 +105,28 @@ def parse_json(raw: str):
         return None
 
 def to_number(value):
-    if isinstance(value, (int, float)): return value
-    if not isinstance(value, str): return value
+    if isinstance(value, (int, float)):
+        return value
+    if not isinstance(value, str):
+        return value
     s = re.sub(r"[^\d,.\-]", "", value)
-    if not s: return value
+    if not s:
+        return value
     has_comma = "," in s
-    if not has_comma and re.search(r"\.\d{3}(\.|$)", s): s = s.replace(".", "")
-    if has_comma: s = s.replace(".", "").replace(",", ".")
+    if not has_comma and re.search(r"\.\d{3}(\.|$)", s):
+        s = s.replace(".", "")
+    if has_comma:
+        s = s.replace(".", "").replace(",", ".")
     try:
         num = float(s)
         return int(num) if num.is_integer() else num
     except ValueError:
         return value
 
-# ═════════════════════════════════════════════════════════════════════════════
-# ФИНАНСЫ ПАРЫ
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# COUPLE FINANCES
+# =========================================================================
 
 EXPENSE_TYPES = "зарплата админов, зарплата, школа, судьи, ведущие, комментаторы, хоз, бар, стройка, техника, аренда, чаши, уборка, охрана, маркетинг, призовой, прочее"
 INCOME_TYPES = "бар, чаши, участие в турнире, фанки, аренда столов, прочее"
@@ -160,9 +165,10 @@ def answer_finance_question(question: str) -> str:
 Вопрос: {question}"""
     return claude_text(prompt, max_tokens=600)
 
-# ═════════════════════════════════════════════════════════════════════════════
-# БАР — классификация фото
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# BAR — photo classification
+# =========================================================================
 
 def classify_photo(img_b64: str, caption: str = "") -> str:
     prompt = f"""Посмотри на фото и определи что это. Ответь ОДНИМ словом:
@@ -173,13 +179,16 @@ def classify_photo(img_b64: str, caption: str = "") -> str:
 Подпись: "{caption}"
 Ответь только одним словом: invoice, receipt или unknown."""
     result = claude_vision(prompt, img_b64, max_tokens=20).lower().strip()
-    if "invoice" in result: return "invoice"
-    if "receipt" in result: return "receipt"
+    if "invoice" in result:
+        return "invoice"
+    if "receipt" in result:
+        return "receipt"
     return "unknown"
 
-# ═════════════════════════════════════════════════════════════════════════════
-# БАР — НАКЛАДНЫЕ
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# BAR — INVOICES
+# =========================================================================
 
 def parse_invoice_image(img_b64: str, caption: str, sender_name: str) -> list:
     today = datetime.now().strftime("%d.%m.%Y")
@@ -207,9 +216,10 @@ def parse_invoice_text(text: str, sender_name: str) -> list:
     data = parse_json(claude_text(prompt, 2000))
     return data if isinstance(data, list) else []
 
-# ═════════════════════════════════════════════════════════════════════════════
-# БАР — СМЕНЫ
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# BAR — SHIFTS
+# =========================================================================
 
 def parse_shift_report(text: str, sender_name: str) -> dict:
     today = datetime.now().strftime("%d.%m.%Y")
@@ -221,14 +231,17 @@ def parse_shift_report(text: str, sender_name: str) -> dict:
 Если в тексте указано имя — используй его, иначе: {sender_name}.
 Текст: "{text}" """
     data = parse_json(claude_text(prompt, 800))
-    if not isinstance(data, dict): return {}
+    if not isinstance(data, dict):
+        return {}
     for key in ("total", "bar", "services", "acquiring", "terminal", "cash"):
-        if key in data: data[key] = to_number(data[key])
+        if key in data:
+            data[key] = to_number(data[key])
     return data
 
-# ═════════════════════════════════════════════════════════════════════════════
-# БАР — ПРОДАЖИ (чеки)
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# BAR — SALES RECEIPTS (returns dict with date + items)
+# =========================================================================
 
 def parse_sales_receipt(img_b64: str, sender_name: str) -> dict:
     prompt = f"""Посмотри на фото чека продаж из бара. Прислал: {sender_name}.
@@ -243,7 +256,8 @@ def parse_sales_receipt(img_b64: str, sender_name: str) -> dict:
 - "чаши" — если позиция содержит: чаша, чаши, продление чаш, продление чаши, кальян
 - "бар" — все остальные (напитки, еда, закуски и т.д.)
 
-Все числа без знаков валют. Если дату не видно — используй сегодняшнюю. Если не чек — верни {{"date":"","items":[]}}."""
+Все числа без знаков валют. Если дату не видно — используй сегодняшнюю.
+Если не чек — верни {{"date":"","items":[]}}."""
     raw = claude_vision(prompt, img_b64, 2000)
     data = parse_json(raw)
     if not isinstance(data, dict):
@@ -272,9 +286,10 @@ def answer_admin_question(question: str) -> str:
 Вопрос: {question}"""
     return claude_text(prompt, 900)
 
-# ═════════════════════════════════════════════════════════════════════════════
-# Классификация намерения
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# Intent classification
+# =========================================================================
 
 def classify_intent(text: str) -> str:
     lower = text.lower()
@@ -285,49 +300,96 @@ def classify_intent(text: str) -> str:
     if any(w in lower for w in ["смена", "выручка", "отчёт", "отчет", "результат смен", "закрыл смену"]):
         return "shift"
     if any(w in lower for w in ["сколько", "баланс", "итого", "кто должен", "статистик",
-                                 "покажи", "список", "сводка", "продаж", "?"]):
+                                 "покажи", "список", "сводка", "?"]):
         return "question"
     if re.search(r"\d+[.,]?\d*\s*(₽|руб|рубл|р\b|€|евро|usd|\$)?", lower):
         return "expense"
     return "unknown"
 
-# ═════════════════════════════════════════════════════════════════════════════
-# Маршрутизация
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# Routing
+# =========================================================================
 
 def route_chat(chat_id: int) -> str:
-    if chat_id == ADMIN_CHAT_ID: return "bar"
-    if chat_id == COUPLE_CHAT_ID: return "couple"
+    if chat_id == ADMIN_CHAT_ID:
+        return "bar"
+    if chat_id == COUPLE_CHAT_ID:
+        return "couple"
     return "unknown"
 
 def should_respond_in_group(msg, text: str) -> bool:
     mentioned = BOT_USERNAME and (f"@{BOT_USERNAME}" in text.lower())
-    reply = bool(msg.reply_to_message and msg.reply_to_message.from_user and msg.reply_to_message.from_user.is_bot)
+    reply = bool(msg.reply_to_message and msg.reply_to_message.from_user
+                 and msg.reply_to_message.from_user.is_bot)
     return mentioned or reply
 
 def strip_mention(text: str) -> str:
-    if not BOT_USERNAME: return text.strip()
+    if not BOT_USERNAME:
+        return text.strip()
     return re.sub(f"@{re.escape(BOT_USERNAME)}", "", text, flags=re.IGNORECASE).strip()
 
-# ═════════════════════════════════════════════════════════════════════════════
-# ОБРАБОТЧИК БАРА
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# Shared helpers for processing photos
+# =========================================================================
+
+async def process_sales_receipt(msg, img_b64: str, sender_name: str, fallback_date: str = ""):
+    """Process a sales receipt photo: recognise items, write to Продажи."""
+    result = parse_sales_receipt(img_b64, sender_name)
+    receipt_date = result.get("date") or fallback_date or datetime.now().strftime("%d.%m.%Y")
+    items = result.get("items", [])
+    if not items:
+        await msg.reply_text("⚠️ Не удалось распознать чек.")
+        return False
+    added_ts = datetime.now().strftime("%d.%m.%Y %H:%M")
+    rows = [[receipt_date, sender_name, i.get("product", ""), to_number(i.get("qty", "")),
+             to_number(i.get("price", "")), to_number(i.get("total", "")),
+             i.get("category", "бар"), added_ts] for i in items]
+    write_to_sheet(BAR_SCRIPT_URL, "Продажи", rows)
+    lines = [f"• {i.get('product','')} × {i.get('qty','')} = {i.get('total','')}₽ [{i.get('category','бар')}]"
+             for i in items]
+    await msg.reply_text(f"✅ Чек продаж ({receipt_date}) от {sender_name}:\n" + "\n".join(lines))
+    return True
+
+async def process_invoice(msg, img_b64: str, caption: str, sender_name: str):
+    """Process an invoice photo: recognise items, write to Накладные."""
+    items = parse_invoice_image(img_b64, caption, sender_name)
+    if not items:
+        await msg.reply_text("⚠️ Не удалось распознать накладную.")
+        return False
+    added_ts = datetime.now().strftime("%d.%m.%Y %H:%M")
+    rows = [[i.get("date", ""), i.get("supplier", "неизвестный"), i.get("product", ""),
+             to_number(i.get("qty", "")), i.get("unit", ""), to_number(i.get("price", "")),
+             to_number(i.get("total", "")), i.get("category", "другое"), sender_name, added_ts]
+            for i in items]
+    write_to_sheet(BAR_SCRIPT_URL, "Накладные", rows)
+    supplier = items[0].get("supplier", "неизвестный") if items else "?"
+    lines = [f"• {i.get('product','')} — {i.get('qty','')} {i.get('unit','')} × {i.get('price','')}₽ = {i.get('total','')}₽"
+             for i in items]
+    await msg.reply_text(f"✅ Накладная от {supplier} ({sender_name}):\n" + "\n".join(lines))
+    return True
+
+
+# =========================================================================
+# BAR HANDLER
+# =========================================================================
 
 async def handle_bar(msg, text: str, sender_name: str, context):
     added_ts = datetime.now().strftime("%d.%m.%Y %H:%M")
     has_photo = bool(msg.photo)
     intent = classify_intent(text) if text else "unknown"
 
-    # ── ТЕКСТ + ФОТО: смена — обрабатываем только текст, фото игнорируем ─
+    # ── Text + photo where text is a shift report: process text only ──────
     if has_photo and text and intent == "shift":
         await msg.reply_text("📊 Разбираю отчёт смены...")
         data = parse_shift_report(text, sender_name)
         if data and data.get("total"):
             closed_by = data.get("closed_by") or sender_name
             write_to_sheet(BAR_SCRIPT_URL, "Смены", [[
-                data.get("date",""), closed_by, data.get("total",""), data.get("bar",""),
-                data.get("services",""), data.get("acquiring",""), data.get("terminal",""),
-                data.get("cash",""), data.get("notes",""), added_ts]])
+                data.get("date", ""), closed_by, data.get("total", ""), data.get("bar", ""),
+                data.get("services", ""), data.get("acquiring", ""), data.get("terminal", ""),
+                data.get("cash", ""), data.get("notes", ""), added_ts]])
             await msg.reply_text(
                 f"✅ Смена {data.get('date','')} записана\n"
                 f"Закрыл: {closed_by}\n"
@@ -339,94 +401,36 @@ async def handle_bar(msg, text: str, sender_name: str, context):
             await msg.reply_text("⚠️ Не удалось разобрать текст отчёта смены.")
         return
 
-        file = await context.bot.get_file(msg.photo[-1].file_id)
-        img_bytes = bytes(await file.download_as_bytearray())
-        img_b64 = image_to_base64(img_bytes)
-        result = parse_sales_receipt(img_b64, sender_name)
-                receipt_date = result.get("date") or datetime.now().strftime("%d.%m.%Y")
-                items = result.get("items", [])
-                if items:
-            rows = [[receipt_date, sender_name, i.get("product",""),
-                     i.get("product",""), to_number(i.get("qty","")), to_number(i.get("price","")),
-                     to_number(i.get("total","")), i.get("category","бар"), added_ts] for i in items]
-            write_to_sheet(BAR_SCRIPT_URL, "Продажи", rows)
-            lines = [f"• {i.get('product','')} × {i.get('qty','')} = {i.get('total','')}₽" for i in items]
-            await msg.reply_text(f"🧾 Чек продаж записан:\n" + "\n".join(lines))
-        else:
-            await msg.reply_text("⚠️ Не удалось распознать чек с фото.")
-        return
-
-    # ── ТОЛЬКО ФОТО (без текста или текст не про смену) ───────────────────
+    # ── Photo only (or photo with non-shift caption) ──────────────────────
     if has_photo:
         file = await context.bot.get_file(msg.photo[-1].file_id)
         img_bytes = bytes(await file.download_as_bytearray())
         img_b64 = image_to_base64(img_bytes)
-        
+
         if intent == "receipt":
             await msg.reply_text("🧾 Разбираю чек продаж...")
-            result = parse_sales_receipt(img_b64, sender_name)
-            receipt_date = result.get("date") or datetime.now().strftime("%d.%m.%Y")
-            items = result.get("items", [])
-            if not items:
-                await msg.reply_text("Не удалось распознать чек.")
-                return
-            rows = [[receipt_date, sender_name, i.get("product",""),
-                     to_number(i.get("price","")), to_number(i.get("total","")), i.get("category","бар"), added_ts] for i in items]
-            write_to_sheet(BAR_SCRIPT_URL, "Продажи", rows)
-            lines = [f"• {i.get('product','')} × {i.get('qty','')} = {i.get('total','')}₽" for i in items]
-            await msg.reply_text(f"✅ Чек продаж от {sender_name}:\n" + "\n".join(lines))
-            return
-            
-        if intent == "invoice":
-            await msg.reply_text("📋 Разбираю накладную...")
-            items = parse_invoice_image(img_b64, text, sender_name)
-            if not items:
-                await msg.reply_text("Не удалось распознать накладную. Пришли фото чётче.")
-                return
-            rows = [[i.get("date",""), i.get("supplier","неизвестный"), i.get("product",""),
-                     to_number(i.get("qty","")), i.get("unit",""), to_number(i.get("price","")),
-                     to_number(i.get("total","")), i.get("category","другое"), sender_name, added_ts]
-                    for i in items]
-            write_to_sheet(BAR_SCRIPT_URL, "Накладные", rows)
-            supplier = items[0].get("supplier", "неизвестный") if items else "?"
-            lines = [f"• {i.get('product','')} — {i.get('qty','')} {i.get('unit','')} × {i.get('price','')}₽ = {i.get('total','')}₽" for i in items]
-            await msg.reply_text(f"✅ Накладная от {supplier} ({sender_name}):\n" + "\n".join(lines))
+            await process_sales_receipt(msg, img_b64, sender_name)
             return
 
+        if intent == "invoice":
+            await msg.reply_text("📋 Разбираю накладную...")
+            await process_invoice(msg, img_b64, text, sender_name)
+            return
+
+        # No caption — auto-detect
         await msg.reply_text("🔍 Определяю тип документа...")
         photo_type = classify_photo(img_b64, text)
         logger.info(f"photo classified as: {photo_type}")
 
         if photo_type == "invoice":
-            items = parse_invoice_image(img_b64, text, sender_name)
-            if not items:
-                await msg.reply_text("Не удалось распознать накладную.")
-                return
-            rows = [[i.get("date",""), i.get("supplier","неизвестный"), i.get("product",""),
-                     to_number(i.get("qty","")), i.get("unit",""), to_number(i.get("price","")),
-                     to_number(i.get("total","")), i.get("category","другое"), sender_name, added_ts]
-                    for i in items]
-            write_to_sheet(BAR_SCRIPT_URL, "Накладные", rows)
-            supplier = items[0].get("supplier", "неизвестный") if items else "?"
-            lines = [f"• {i.get('product','')} — {i.get('qty','')} {i.get('unit','')} × {i.get('price','')}₽" for i in items]
-            await msg.reply_text(f"✅ Накладная от {supplier} ({sender_name}):\n" + "\n".join(lines))
-
+            await process_invoice(msg, img_b64, text, sender_name)
         elif photo_type == "receipt":
-            items = parse_sales_receipt(img_b64, sender_name)
-            if not items:
-                await msg.reply_text("Не удалось распознать чек.")
-                return
-            rows = [[added_ts, sender_name, i.get("product",""), to_number(i.get("qty","")),
-                     to_number(i.get("price","")), to_number(i.get("total","")), i.get("category","бар"), added_ts] for i in items]
-            write_to_sheet(BAR_SCRIPT_URL, "Продажи", rows)
-            lines = [f"• {i.get('product','')} × {i.get('qty','')} = {i.get('total','')}₽" for i in items]
-            await msg.reply_text(f"✅ Чек продаж от {sender_name}:\n" + "\n".join(lines))
-
+            await process_sales_receipt(msg, img_b64, sender_name)
         else:
             await msg.reply_text("Не понял что на фото. Подпиши «накладная» или «чек» чтобы я понял.")
         return
 
-    # ── ТОЛЬКО ТЕКСТ ──────────────────────────────────────────────────────
+    # ── Text only ─────────────────────────────────────────────────────────
     if not text:
         return
 
@@ -434,15 +438,16 @@ async def handle_bar(msg, text: str, sender_name: str, context):
         await msg.reply_text("📊 Разбираю отчёт смены...")
         data = parse_shift_report(text, sender_name)
         if not data or not data.get("total"):
-            await msg.reply_text("Не удалось разобрать. Пришли в формате:\n"
+            await msg.reply_text(
+                "Не удалось разобрать. Пришли в формате:\n"
                 "«28.05 Выручка: 33460 — бар: 8190 — услуги: 25270\n"
                 "эквайринг: 0 — терминал: 25700 — наличные: 7760»")
             return
         closed_by = data.get("closed_by") or sender_name
         write_to_sheet(BAR_SCRIPT_URL, "Смены", [[
-            data.get("date",""), closed_by, data.get("total",""), data.get("bar",""),
-            data.get("services",""), data.get("acquiring",""), data.get("terminal",""),
-            data.get("cash",""), data.get("notes",""), added_ts]])
+            data.get("date", ""), closed_by, data.get("total", ""), data.get("bar", ""),
+            data.get("services", ""), data.get("acquiring", ""), data.get("terminal", ""),
+            data.get("cash", ""), data.get("notes", ""), added_ts]])
         await msg.reply_text(
             f"✅ Смена {data.get('date','')} записана\n"
             f"Закрыл: {closed_by}\n"
@@ -456,12 +461,13 @@ async def handle_bar(msg, text: str, sender_name: str, context):
         if not items:
             await msg.reply_text("Не нашёл позиций в накладной.")
             return
-        rows = [[i.get("date",""), i.get("supplier",""), i.get("product",""),
-                 to_number(i.get("qty","")), i.get("unit",""), to_number(i.get("price","")),
-                 to_number(i.get("total","")), i.get("category",""), sender_name, added_ts]
+        rows = [[i.get("date", ""), i.get("supplier", ""), i.get("product", ""),
+                 to_number(i.get("qty", "")), i.get("unit", ""), to_number(i.get("price", "")),
+                 to_number(i.get("total", "")), i.get("category", ""), sender_name, added_ts]
                 for i in items]
         write_to_sheet(BAR_SCRIPT_URL, "Накладные", rows)
-        lines = [f"• {i.get('product','')} {i.get('qty','')} {i.get('unit','')} = {i.get('total','')}₽" for i in items]
+        lines = [f"• {i.get('product','')} {i.get('qty','')} {i.get('unit','')} = {i.get('total','')}₽"
+                 for i in items]
         await msg.reply_text(f"✅ Накладная от {sender_name}:\n" + "\n".join(lines))
 
     elif intent == "question":
@@ -474,12 +480,14 @@ async def handle_bar(msg, text: str, sender_name: str, context):
             "• Фото накладной → занесу поставку\n"
             "• Фото чека продаж → занесу в продажи\n"
             "• Текст отчёта смены → занесу выручку\n"
-            "• Текст + фото чека → смена + продажи\n"
+            "• Reply + «чек» → разберу чек из оригинала\n"
+            "• Reply + «забери» → обработаю оригинал\n"
             "• «Выручка за май?» → отвечу по данным")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# ОБРАБОТЧИК ПАРЫ
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# COUPLE HANDLER
+# =========================================================================
 
 async def handle_couple(msg, text: str, sender_name: str, context):
     added_ts = datetime.now().strftime("%d.%m.%Y %H:%M")
@@ -495,12 +503,13 @@ async def handle_couple(msg, text: str, sender_name: str, context):
 
     ops = parse_finance(text, sender_name)
     if ops:
-        rows = [[e.get("date",""), e.get("who") or sender_name, e.get("operation","расход"),
-                 to_number(e.get("amount","")), e.get("type","прочее"), e.get("desc",""), added_ts]
+        rows = [[e.get("date", ""), e.get("who") or sender_name, e.get("operation", "расход"),
+                 to_number(e.get("amount", "")), e.get("type", "прочее"), e.get("desc", ""), added_ts]
                 for e in ops]
         write_to_sheet(COUPLE_SCRIPT_URL, "Финансы", rows)
         lines = [f"• {e.get('operation','расход').upper()} | {e.get('who') or sender_name}: "
-                 f"{e.get('amount','')}₽ — {e.get('desc','')} ({e.get('type','')})" for e in ops]
+                 f"{e.get('amount','')}₽ — {e.get('desc','')} ({e.get('type','')})"
+                 for e in ops]
         await msg.reply_text("✅ Записал:\n" + "\n".join(lines))
     else:
         await msg.reply_text(
@@ -509,13 +518,15 @@ async def handle_couple(msg, text: str, sender_name: str, context):
             "Доходы: «получил 50000₽ зарплата»\n"
             "Вопросы: «Какой баланс?», «Расходы за май?»")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# ГЛАВНЫЙ ОБРАБОТЧИК
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# MAIN MESSAGE HANDLER
+# =========================================================================
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
-    if not msg: return
+    if not msg:
+        return
 
     chat_id = msg.chat_id
     chat_type = msg.chat.type
@@ -523,7 +534,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sender_name = get_sender_name(msg)
     route = route_chat(chat_id)
 
-    logger.info(f"msg chat_id={chat_id} type={chat_type} route={route} photo={bool(msg.photo)} text={text[:60]!r}")
+    logger.info(f"msg chat_id={chat_id} type={chat_type} route={route} "
+                f"photo={bool(msg.photo)} text={text[:60]!r}")
 
     if route == "unknown":
         return
@@ -533,22 +545,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         text = strip_mention(text)
 
-# ── Reply на старое сообщение: берём данные из оригинала ──────────────
-        replied = msg.reply_to_message
-        if replied and replied.from_user and not replied.from_user.is_bot:
-            original_text = (replied.text or replied.caption or "").strip()
-            original_photo = replied.photo if replied.photo else None
+    # ── Reply to an old message: grab data from the original ──────────────
+    replied = msg.reply_to_message
+    if replied and replied.from_user and not replied.from_user.is_bot:
+        original_text = (replied.text or replied.caption or "").strip()
+        original_photo = replied.photo if replied.photo else None
 
-            clean = text.lower().strip()
-            trigger_words = ["забери", "запиши", "занеси", "разбери", "обработай", "чек", "накладная", "смена"]
-            is_just_trigger = clean == "" or any(w in clean for w in trigger_words)
+        clean = text.lower().strip()
+        trigger_words = ["забери", "запиши", "занеси", "разбери", "обработай",
+                         "чек", "накладная", "смена"]
+        is_just_trigger = clean == "" or any(w in clean for w in trigger_words)
 
         if is_just_trigger and (original_text or original_photo):
-                logger.info(f"Reply mode: берём данные из оригинального сообщения")
-                text = original_text
-                sender_name = get_sender_name(replied)
-                if original_photo:
-                    msg = replied
+            logger.info(f"Reply mode: trigger={clean}")
+            sender_name = get_sender_name(replied)
+
+            # "чек" — treat original photo as sales receipt
+            if "чек" in clean and original_photo:
+                file = await context.bot.get_file(original_photo[-1].file_id)
+                img_bytes = bytes(await file.download_as_bytearray())
+                img_b64 = image_to_base64(img_bytes)
+                await msg.reply_text("🧾 Разбираю чек продаж...")
+                await process_sales_receipt(msg, img_b64, sender_name)
+                return
+
+            # "накладная" — treat original photo as invoice
+            if "накладная" in clean and original_photo:
+                file = await context.bot.get_file(original_photo[-1].file_id)
+                img_bytes = bytes(await file.download_as_bytearray())
+                img_b64 = image_to_base64(img_bytes)
+                await msg.reply_text("📋 Разбираю накладную...")
+                await process_invoice(msg, img_b64, original_text, sender_name)
+                return
+
+            # General case: grab everything from original
+            text = original_text
+            if original_photo:
+                msg = replied
 
     try:
         if route == "bar":
@@ -559,9 +592,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"handle error: {e}", exc_info=True)
         await update.message.reply_text("❌ Ошибка, попробуй ещё раз.")
 
-# ═════════════════════════════════════════════════════════════════════════════
-# КОМАНДЫ
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
+# COMMANDS
+# =========================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     route = route_chat(update.message.chat_id)
@@ -571,7 +605,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• Фото накладной → запишу поставку\n"
             "• Фото чека продаж → запишу в продажи\n"
             "• Текст отчёта смены → запишу выручку\n"
-            "• Текст + фото чека → смена + продажи\n"
+            "• Reply + «чек» → разберу чек из оригинала\n"
+            "• Reply + «забери» → обработаю оригинал\n"
             "• «Выручка за май?» → отвечу по данным")
     elif route == "couple":
         await update.message.reply_text(
@@ -581,13 +616,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• «Какой баланс?» → посчитаю")
     else:
         await update.message.reply_text(
-            f"Этот чат не подключён.\nID: `{update.message.chat_id}`", parse_mode="Markdown")
+            f"Этот чат не подключён.\nID: `{update.message.chat_id}`",
+            parse_mode="Markdown")
 
 async def get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cid = update.message.chat_id
-    await update.message.reply_text(f"ID: `{cid}`\nРаспознан: *{route_chat(cid)}*", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"ID: `{cid}`\nРаспознан: *{route_chat(cid)}*",
+        parse_mode="Markdown")
 
-# ═════════════════════════════════════════════════════════════════════════════
+
+# =========================================================================
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
